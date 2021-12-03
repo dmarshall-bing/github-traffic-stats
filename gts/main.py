@@ -3,6 +3,7 @@
 import argparse
 import csv
 import os
+import pandas as pd
 from collections import OrderedDict
 import datetime
 import getpass
@@ -229,6 +230,45 @@ def store_csv(file_path, repo, json_response, response_type):
                 csv_writer = csv.writer(csvfile, delimiter=',', quotechar='"', quoting=csv.QUOTE_MINIMAL)
                 csv_writer.writerow(row)
 
+
+def append_csv(file_path, repo, json_response, response_type):
+    """ Store the traffic stats as a CSV, with schema:
+    repo_name, date, views, unique_visitors/cloners
+    :param file_path: str - path to store CSV
+    :param repo: str - the GitHub repository name
+    :param json_response: json - the json input
+    :param response_type: str - 'views', 'clones', ''
+    """
+    repo_name = repo
+    
+    append_file = repo_name+'_'+file_path.split('m-')[-1]
+    # # Not writing Totals stats into the CSV to maintain normalization
+    # total_views = str(json_response['count'])
+    # total_uniques = str(json_response['uniques'])
+
+    dates_and_views = OrderedDict()
+    detailed_views = json_response[response_type]  # 'views', 'clones'
+    for row in detailed_views:
+        utc_date = str(row['timestamp'][0:10])
+        dates_and_views[utc_date] = (str(row['count']), str(row['uniques']))
+    
+    headers = ['repository_name', 'date', response_type.lower(), 'unique_visitors/cloners']
+
+    # Starting up the CSV, writing the headers in a first pass
+    # Check if existing CSV
+    rows = []
+    for i in dates_and_views:
+        rows.append([repo_name, i, dates_and_views[i][0], dates_and_views[i][1]])
+    data = pd.DataFrame(rows,columns = headers)
+    if not os.path.isfile(append_file):
+        data.to_csv(append_file)
+    else:
+        datain = pd.read_csv(append_file,index_col=[0])
+        for i,row in data.iterrows():
+            datain = datain[datain['date'] != row['date']]
+        finaldata = pd.concat([datain,data])
+        finaldata.sort_values('date')
+        finaldata.to_csv(append_file,index = False)
 
 def store_db(db_config={}, repo='', json_response='', response_type=''):
    """ Store data for a given response into a corresponding table (described in create_table.sql):
@@ -460,7 +500,9 @@ def main():
             store_db(db_config, repo, traffic_response, 'views')
             store_db(db_config, repo, clones_response, 'clones')
             store_db(db_config, repo, referrers_response)
-
+        elif args.save_csv =='append_csv':
+            append_csv(csv_file_name, repo, traffic_response, 'views')
+            append_csv(csv_file_name_clones, repo, clones_response, 'clones')
 
 
 if __name__ == '__main__':
